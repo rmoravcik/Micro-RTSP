@@ -2,23 +2,26 @@
 #include <WiFi.h>
 #include <WebServer.h>
 #include <WiFiClient.h>
+#include "esp_wifi.h"
 
 #include "SimStreamer.h"
 #include "OV2640Streamer.h"
 #include "CRtspSession.h"
 
 #define ENABLE_OLED //if want use oled ,turn on thi macro
-// #define SOFTAP_MODE // If you want to run our own softap turn this on
+#define SOFTAP_MODE // If you want to run our own softap turn this on
 #define ENABLE_WEBSERVER
 #define ENABLE_RTSPSERVER
 
 #ifdef ENABLE_OLED
 #include "SSD1306.h"
+#include "OLEDDisplayUi.h"
 #define OLED_ADDRESS 0x3c
-#define I2C_SDA 14
-#define I2C_SCL 13
+#define I2C_SDA 21
+#define I2C_SCL 22
 SSD1306Wire display(OLED_ADDRESS, I2C_SDA, I2C_SCL, GEOMETRY_128_32);
 bool hasDisplay; // we probe for the device at runtime
+OLEDDisplayUi ui(&display);
 #endif
 
 OV2640 cam;
@@ -33,6 +36,7 @@ WiFiServer rtspServer(8554);
 
 
 #ifdef SOFTAP_MODE
+char buff[128];
 IPAddress apIP = IPAddress(192, 168, 1, 1);
 #else
 #include "wifikeys.h"
@@ -103,10 +107,31 @@ void lcdMessage(String msg)
 {
     if(hasDisplay) {
         display.clear();
-        display.drawString(128 / 2, 32 / 2, msg);
+        display.drawString(128 / 2, (32 / 2) - 10, msg);
         display.display();
     }
 }
+
+void drawFrame1(OLEDDisplay *display, OLEDDisplayUiState *state, int16_t x, int16_t y)
+{
+#ifdef SOFTAP_MODE
+  display->setTextAlignment(TEXT_ALIGN_CENTER);
+  display->setFont(ArialMT_Plain_10);
+  display->drawString(64 + x, y + 10, buff);
+#endif
+}
+
+void drawFrame2(OLEDDisplay *display, OLEDDisplayUiState *state, int16_t x, int16_t y)
+{
+#ifdef SOFTAP_MODE
+  display->setTextAlignment(TEXT_ALIGN_CENTER);
+  display->setFont(ArialMT_Plain_10);
+  display->drawString(64 + x, y + 10, WiFi.softAPIP().toString());
+#endif
+}
+
+FrameCallback frames[] = {drawFrame1, drawFrame2};
+#define FRAMES_SIZE (sizeof(frames) / sizeof(frames[0]))
 #endif
 
 CStreamer *streamer;
@@ -116,30 +141,29 @@ void setup()
   #ifdef ENABLE_OLED
     hasDisplay = display.init();
     if(hasDisplay) {
-        display.flipScreenVertically();
         display.setFont(ArialMT_Plain_16);
         display.setTextAlignment(TEXT_ALIGN_CENTER);
     }
   #endif
-    LCD_MESSAGE("booting");
+    LCD_MESSAGE("Booting");
 
     Serial.begin(115200);
     while (!Serial)
     {
         ;
     }
-    cam.init(esp32cam_config);
+    cam.init(esp32cam_ttgo_t_config);
 
     IPAddress ip;
 
 
 #ifdef SOFTAP_MODE
-    const char *hostname = "devcam";
-    // WiFi.hostname(hostname); // FIXME - find out why undefined
-    LCD_MESSAGE("starting softAP");
+    uint8_t mac[6];
+    LCD_MESSAGE("Starting softAP");
     WiFi.mode(WIFI_AP);
-    WiFi.softAPConfig(apIP, apIP, IPAddress(255, 255, 255, 0));
-    bool result = WiFi.softAP(hostname, "12345678", 1, 0);
+    esp_wifi_get_mac(WIFI_IF_AP, mac);
+    sprintf(buff, "TTGO-CAMERA-%02X:%02X", mac[4], mac[5]);
+    bool result = WiFi.softAP(buff, "12345678", 1, 0);
     if (!result)
     {
         Serial.println("AP Config failed.");
@@ -154,7 +178,7 @@ void setup()
         ip = WiFi.softAPIP();
     }
 #else
-    LCD_MESSAGE(String("join ") + ssid);
+    LCD_MESSAGE(String("Join ") + ssid);
     WiFi.mode(WIFI_STA);
     WiFi.begin(ssid, password);
     while (WiFi.status() != WL_CONNECTED)
@@ -168,7 +192,23 @@ void setup()
     Serial.println(ip);
 #endif
 
-    LCD_MESSAGE(ip.toString());
+#ifdef ENABLE_OLED
+//    ui.setTargetFPS(30);
+//    ui.setIndicatorPosition(BOTTOM);
+//    ui.setIndicatorDirection(LEFT_RIGHT);
+//    ui.setFrameAnimation(SLIDE_LEFT);
+//    ui.setFrames(frames, FRAMES_SIZE);
+//    ui.setTimePerFrame(6000);
+#endif
+
+#ifdef SOFTAP_MODE
+    display.clear();
+    display.setTextAlignment(TEXT_ALIGN_CENTER);
+    display.setFont(ArialMT_Plain_10);
+    display.drawString(64, 6, buff);
+    display.drawString(64, 16, WiFi.softAPIP().toString());
+    display.display();
+#endif
 
 #ifdef ENABLE_WEBSERVER
     server.on("/", HTTP_GET, handle_jpg_stream);
@@ -189,6 +229,10 @@ void loop()
 {
 #ifdef ENABLE_WEBSERVER
     server.handleClient();
+#endif
+
+#ifdef ENABLE_OLED
+//    ui.update();
 #endif
 
 #ifdef ENABLE_RTSPSERVER

@@ -96,8 +96,8 @@ camera_config_t esp32cam_ttgo_t_config{
     .ledc_timer = LEDC_TIMER_0,
     .ledc_channel = LEDC_CHANNEL_0,
     .pixel_format = PIXFORMAT_JPEG,
-    .frame_size = FRAMESIZE_SVGA,
-    .jpeg_quality = 12, //0-63 lower numbers are higher quality
+    .frame_size = FRAMESIZE_UXGA,
+    .jpeg_quality = 10, //0-63 lower numbers are higher quality
     .fb_count = 2       // if more than one i2s runs in continous mode.  Use only with jpeg
 };
 void OV2640::done(void)
@@ -196,6 +196,10 @@ esp_err_t OV2640::init(camera_config_t config)
         return err;
     }
     // ESP_ERROR_CHECK(gpio_install_isr_service(0));
+
+    sensor_t *s = esp_camera_sensor_get();
+    s->set_vflip(s, 1);
+    s->set_hmirror(s, 1);
 
     return ESP_OK;
 }
